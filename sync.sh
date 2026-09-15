@@ -48,16 +48,27 @@ if [ -n "${MIRROR_SSH_KEY:-}" ]; then
   TMPDIR_SSH="$(mktemp -d)"
   chmod 700 "$TMPDIR_SSH"
 
-  printf '%s\n' "$MIRROR_SSH_KEY" > "$TMPDIR_SSH/id"
-  # Tolerate keys stored with literal \n or with a missing trailing newline.
-  if ! grep -q 'PRIVATE KEY' "$TMPDIR_SSH/id"; then
-    printf '%b\n' "$MIRROR_SSH_KEY" > "$TMPDIR_SSH/id"
+  # Accept either the key contents (GitLab "Variable" / GitHub secret) or a path
+  # to a file holding them (GitLab "File"-type variable).
+  if [ -f "$MIRROR_SSH_KEY" ]; then
+    cat "$MIRROR_SSH_KEY" > "$TMPDIR_SSH/id"
+  else
+    printf '%s\n' "$MIRROR_SSH_KEY" > "$TMPDIR_SSH/id"
+    # Tolerate keys stored with literal \n or with a missing trailing newline.
+    if ! grep -q 'PRIVATE KEY' "$TMPDIR_SSH/id"; then
+      printf '%b\n' "$MIRROR_SSH_KEY" > "$TMPDIR_SSH/id"
+    fi
   fi
   chmod 600 "$TMPDIR_SSH/id"
+  grep -q 'PRIVATE KEY' "$TMPDIR_SSH/id" || fail "MIRROR_SSH_KEY does not look like a private key (expected a PEM block, or a path to one)"
 
   KNOWN_HOSTS="$TMPDIR_SSH/known_hosts"
   if [ -n "${MIRROR_KNOWN_HOSTS:-}" ]; then
-    printf '%s\n' "$MIRROR_KNOWN_HOSTS" > "$KNOWN_HOSTS"
+    if [ -f "$MIRROR_KNOWN_HOSTS" ]; then
+      cat "$MIRROR_KNOWN_HOSTS" > "$KNOWN_HOSTS"
+    else
+      printf '%s\n' "$MIRROR_KNOWN_HOSTS" > "$KNOWN_HOSTS"
+    fi
   else
     host="$(target_host)"
     log "scanning host key for $host (pin it via MIRROR_KNOWN_HOSTS to avoid TOFU)"

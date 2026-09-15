@@ -1,13 +1,27 @@
-stages: [mirror]
+# Mirrors develop to GitHub on every push. See README.md.
+#
+# CI/CD variables (type Variable or File both work):
+#   MIRROR_SSH_KEY      private key with write access to the GitHub repo
+#   MIRROR_KNOWN_HOSTS  optional; github.com host keys. Falls back to ssh-keyscan.
+#
+# Neither may be "Protect variable" unless develop is a protected branch, and
+# MIRROR_SSH_KEY cannot be masked (GitLab refuses multi-line masked values).
+
+stages:
+  - mirror
 
 mirror-to-github:
   stage: mirror
+  tags:
+    - docker
   image: alpine:3.20
   rules:
-    - if: '$CI_COMMIT_BRANCH == "develop" && $CI_PIPELINE_SOURCE == "push"'
-    - if: '$CI_PIPELINE_SOURCE == "web" && $CI_COMMIT_BRANCH == "develop"'
+    - if: $CI_COMMIT_BRANCH == "develop" && $CI_PIPELINE_SOURCE == "push"
+    - if: $CI_COMMIT_BRANCH == "develop" && $CI_PIPELINE_SOURCE == "web"
+  # Serialise pipelines so two pushes can't race to fast-forward the mirror.
   resource_group: mirror-develop
   variables:
+    # Full history: fast-forward cannot be proven from a shallow clone.
     GIT_DEPTH: 0
     GIT_STRATEGY: clone
     MIRROR_TARGET_URL: git@github.com:NikolaNemes/two-way-empty.git
