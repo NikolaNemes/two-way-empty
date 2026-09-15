@@ -1,0 +1,27 @@
+name: Mirror develop to GitLab
+
+on:
+  push:
+    branches: [develop]
+  workflow_dispatch:
+
+concurrency:
+  group: mirror-develop
+  cancel-in-progress: false
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: develop
+
+      - name: Fast-forward GitLab develop
+        env:
+          MIRROR_TARGET_URL: git@git.clicker.team:nikola.nemes/two-way-empty.git
+          MIRROR_SSH_KEY: ${{ secrets.MIRROR_SSH_KEY }}
+          MIRROR_KNOWN_HOSTS: ${{ secrets.MIRROR_KNOWN_HOSTS }}
+          BRANCH: develop
+        run: ./sync.sh
