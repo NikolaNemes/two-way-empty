@@ -3,6 +3,7 @@
 import { SidebarTrigger } from "@/components/ui/sidebar"
 import { Separator } from "@/components/ui/separator"
 import { UserMenu } from "@/components/user-menu"
+import { ThemeToggle } from "@/components/theme-toggle"
 
 /**
  * Global desktop top bar. Renders once (in the AppShell) so the account menu
@@ -15,7 +16,8 @@ export function AppTopbar() {
     <header className="sticky top-0 z-30 hidden h-14 items-center gap-2 border-b border-border bg-card/95 px-4 backdrop-blur supports-[backdrop-filter]:bg-card/80 md:flex">
       <SidebarTrigger className="-ml-1 shrink-0" />
       <Separator orientation="vertical" className="h-5" />
-      <div className="ml-auto flex items-center">
+      <div className="ml-auto flex items-center gap-1">
+        <ThemeToggle />
         <UserMenu />
       </div>
     </header>

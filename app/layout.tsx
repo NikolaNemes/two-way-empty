@@ -4,6 +4,7 @@ import { Geist, Geist_Mono } from 'next/font/google'
 import { Analytics } from '@vercel/analytics/react'
 import { ClerkProvider } from '@clerk/nextjs'
 import { AppShell } from '@/components/app-shell'
+import { ThemeProvider } from '@/components/theme-provider'
 import './globals.css'
 
 const _geist = Geist({ subsets: ["latin"] });
@@ -61,9 +62,11 @@ export default function RootLayout({
     >
       <html lang="en">
         <body className="font-sans antialiased">
-          <AppShell>
-            {children}
-          </AppShell>
+          <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
+            <AppShell>
+              {children}
+            </AppShell>
+          </ThemeProvider>
           <Analytics />
         </body>
       </html>

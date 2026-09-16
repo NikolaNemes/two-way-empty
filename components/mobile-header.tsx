@@ -4,6 +4,7 @@ import { Menu, PlugZap } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useSidebar } from "@/components/ui/sidebar"
 import { UserMenu } from "@/components/user-menu"
+import { ThemeToggle } from "@/components/theme-toggle"
 
 /**
  * A persistent header shown only on mobile (md:hidden) providing access to the
@@ -37,7 +38,8 @@ export function MobileHeader() {
         </div>
       </div>
 
-      <div className="ml-auto flex items-center">
+      <div className="ml-auto flex items-center gap-1">
+        <ThemeToggle />
         <UserMenu />
       </div>
     </header>
