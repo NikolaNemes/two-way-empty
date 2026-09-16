@@ -1,0 +1,190 @@
+# ════════════════════════════════════════════════════════════════════════════
+# Amperio Dispatch — VPS deployment.
+#
+#   cp .env.example .env      # then fill it in (see comments in that file)
+#   docker compose up -d --build
+#
+# ENV HANDLING — two distinct mechanisms, both fed by the same ./.env:
+#   1. `env_file: .env`  → the whole file is injected into the container at
+#      RUNTIME. Add a var to .env and it is available; no compose edit needed.
+#   2. `${VAR}` in build.args → compose interpolates from ./.env at BUILD time.
+#      Only NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY needs this, because Next inlines
+#      it into the client bundle. `${VAR:-}` keeps the build working when unset.
+#
+# The dispatch worker reads services/dispatch-worker/.env (its own file, since
+# STATION_ID/SITE_ID/ASSET_ID are per-site) layered on top of the root .env.
+#
+# Optional local infrastructure is behind profiles — omit them and the app
+# talks to hosted Neon / Upstash instead:
+#   docker compose --profile local-db --profile local-redis up -d --build
+# ════════════════════════════════════════════════════════════════════════════
+
+name: amperio-dispatch
+
+services:
+  # ── Next.js dashboard + API/cron/dispatcher routes ────────────────────────
+  app:
+    build:
+      context: .
+      target: runtime
+      args:
+        # Inlined into the CLIENT bundle at build time — a runtime-only value
+        # would leave every Clerk component with an empty key.
+        # The only build arg. DATABASE_URL / CLERK_SECRET_KEY are runtime-only
+        # (env_file below) so they never land in the image history.
+        NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY:-}
+    image: amperio-dispatch:latest
+    restart: unless-stopped
+    env_file:
+      - .env
+    # Liveness only. Lives here rather than in the Dockerfile so the worker,
+    # which shares this image but serves no HTTP, isn't marked unhealthy.
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/sign-in').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      start_period: 45s
+      retries: 3
+    ports:
+      # Bound to loopback: nginx/Caddy on the host terminates TLS and proxies
+      # here. Change to "3000:3000" only if nothing fronts it.
+      - "127.0.0.1:3000:3000"
+    networks: [amperio]
+    # `depends_on` conditions apply only when the profile is active; with
+    # hosted Neon/Upstash these services simply don't exist and are ignored.
+    depends_on:
+      postgres:
+        condition: service_healthy
+        required: false
+      serverless-redis-http:
+        condition: service_started
+        required: false
+    logging: &logging
+      driver: json-file
+      options: { max-size: "10m", max-file: "5" }
+
+  # ── Standalone dispatch worker (15s loop → app's /api/dispatcher/tick) ────
+  worker:
+    # Same image as `app` — no build block, so it is never built twice. The
+    # process is selected by working_dir: `pnpm start` there is
+    # `tsx src/worker.ts` instead of `next start`.
+    image: amperio-dispatch:latest
+    working_dir: /app/services/dispatch-worker
+    restart: unless-stopped
+    env_file:
+      # Later files win: the worker's own file overrides shared values such as
+      # STATION_ID/SITE_ID/ASSET_ID and TICK_MS. It is optional so a single-site
+      # deploy can keep everything in the root .env.
+      - .env
+      - path: services/dispatch-worker/.env
+        required: false
+    environment:
+      # In-network address of the tick endpoint. Overrides whatever APP_BASE_URL
+      # the .env files set — the worker must not round-trip through the public
+      # hostname (and through Clerk's edge) to reach a sibling container.
+      APP_BASE_URL: http://app:3000
+      STATUS_REPORT_URL: http://app:3000
+    depends_on:
+      app:
+        condition: service_healthy
+    networks: [amperio]
+    logging: *logging
+
+  # ── Cron replacement for vercel.json (rollup / retention / fleet-report) ──
+  # vercel.json's `crons` block does nothing off-Vercel. This container runs the
+  # same three schedules (UTC) against the in-network app, authenticating with
+  # CRON_SECRET exactly as Vercel Cron did.
+  cron:
+    image: alpine:3.20
+    restart: unless-stopped
+    env_file:
+      - .env
+    networks: [amperio]
+    depends_on:
+      app:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -eu
+        apk add --no-cache curl tzdata >/dev/null
+        cat > /etc/periodic/hit <<'EOF'
+        #!/bin/sh
+        curl -fsS -m 320 -H "Authorization: Bearer $${CRON_SECRET}" "http://app:3000$$1" \
+          && echo "[cron] ok $$1" || echo "[cron] FAILED $$1"
+        EOF
+        chmod +x /etc/periodic/hit
+        cat > /etc/crontabs/root <<'EOF'
+        30 2 * * * /etc/periodic/hit /api/cron/rollup
+        15 3 * * * /etc/periodic/hit /api/cron/retention
+        0  4 * * * /etc/periodic/hit /api/cron/fleet-report
+        EOF
+        exec crond -f -l 8 -L /dev/stdout
+    environment:
+      TZ: UTC
+    logging: *logging
+
+  # ── Optional: local Postgres  (profile: local-db) ─────────────────────────
+  # lib/db/index.ts rewrites sslmode=prefer|require|verify-ca to verify-full, so
+  # a self-signed local server must use ?sslmode=disable in DATABASE_URL.
+  # NOTE: there is no migration runner in this repo — lib/db/schema.ts mirrors
+  # DDL applied manually. Load a pg_dump --schema-only before first use.
+  postgres:
+    profiles: [local-db]
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-amperio}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-amperio}
+      POSTGRES_DB: ${POSTGRES_DB:-amperio}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-amperio} -d ${POSTGRES_DB:-amperio}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks: [amperio]
+    logging: *logging
+
+  # ── Optional: Upstash-compatible Redis  (profile: local-redis) ────────────
+  # lib/dispatcher-store.ts uses @upstash/redis, which speaks Upstash's REST
+  # protocol — a plain redis:// server will NOT work. serverless-redis-http puts
+  # that REST surface in front of a normal Redis. Point KV_REST_API_URL at
+  # http://serverless-redis-http:80 and KV_REST_API_TOKEN at SRH_TOKEN.
+  redis:
+    profiles: [local-redis]
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+    networks: [amperio]
+    logging: *logging
+
+  serverless-redis-http:
+    profiles: [local-redis]
+    image: hiett/serverless-redis-http:latest
+    restart: unless-stopped
+    environment:
+      SRH_MODE: env
+      SRH_TOKEN: ${KV_REST_API_TOKEN:?set KV_REST_API_TOKEN in .env}
+      SRH_CONNECTION_STRING: redis://redis:6379
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks: [amperio]
+    logging: *logging
+
+networks:
+  amperio:
+    driver: bridge
+
+volumes:
+  pgdata:
+  redisdata:

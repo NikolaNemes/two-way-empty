@@ -1,0 +1,22 @@
+{
+  "name": "dispatch-worker",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Standalone Amperio dispatching service. Runs a persistent 15-second loop that reads live telemetry, runs the shared dispatch kernel, and POSTs grid setpoints to the Amperio command API.",
+  "scripts": {
+    "start": "tsx src/worker.ts",
+    "dev": "tsx watch src/worker.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "pg": "^8.13.1"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3",
+    "@types/node": "^22.9.0",
+    "@types/pg": "^8.11.10"
+  }
+}

@@ -3,3 +3,20 @@ id_ed25519*
 gh-to-gl*
 gl-to-gh*
 keys/
+
+# v0 runtime files
+__v0_runtime_loader.js
+__v0_devtools.tsx
+__v0_jsx-dev-runtime.ts
+
+# Common ignores
+node_modules
+.next/
+.env
+.env.*
+!.env.example
+.DS_Store
+.vercel
+
+# clerk configuration (can include secrets)
+/.clerk/

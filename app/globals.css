@@ -1,0 +1,235 @@
+@import 'tailwindcss';
+@import 'tw-animate-css';
+
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  --background: oklch(0.985 0.001 60);
+  --foreground: oklch(0.14 0.01 60);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.14 0.01 60);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.14 0.01 60);
+  --primary: oklch(0.65 0.17 55);
+  --primary-foreground: oklch(0.99 0 0);
+  --secondary: oklch(0.96 0.005 60);
+  --secondary-foreground: oklch(0.2 0.01 60);
+  --muted: oklch(0.94 0.004 60);
+  --muted-foreground: oklch(0.48 0.01 60);
+  --accent: oklch(0.95 0.02 55);
+  --accent-foreground: oklch(0.35 0.12 55);
+  --destructive: oklch(0.577 0.245 27.325);
+  /* Must contrast with --destructive: it was identical (red on red), which
+     rendered "Delete user" / "Revoke" buttons and error badges with invisible
+     text. Every usage in this app pairs it with bg-destructive. */
+  --destructive-foreground: oklch(0.985 0 0);
+  --border: oklch(0.91 0.004 60);
+  --input: oklch(0.91 0.004 60);
+  --ring: oklch(0.65 0.17 55);
+  --chart-1: oklch(0.65 0.17 55);
+  --chart-2: oklch(0.52 0.13 240);
+  --chart-3: oklch(0.62 0.15 145);
+  --chart-4: oklch(0.55 0.12 30);
+  --chart-5: oklch(0.58 0.08 280);
+  --radius: 0.5rem;
+  --sidebar: oklch(0.99 0.002 60);
+  --sidebar-foreground: oklch(0.25 0.015 55);
+  --sidebar-primary: oklch(0.65 0.17 55);
+  --sidebar-primary-foreground: oklch(0.99 0 0);
+  --sidebar-accent: oklch(0.96 0.015 55);
+  --sidebar-accent-foreground: oklch(0.35 0.06 55);
+  --sidebar-border: oklch(0.92 0.006 60);
+  --sidebar-ring: oklch(0.65 0.17 55);
+}
+
+.dark {
+  --background: oklch(0.12 0.01 55);
+  --foreground: oklch(0.93 0.005 55);
+  --card: oklch(0.16 0.015 55);
+  --card-foreground: oklch(0.93 0.005 55);
+  --popover: oklch(0.16 0.015 55);
+  --popover-foreground: oklch(0.93 0.005 55);
+  --primary: oklch(0.70 0.17 55);
+  --primary-foreground: oklch(0.99 0 0);
+  --secondary: oklch(0.22 0.015 55);
+  --secondary-foreground: oklch(0.93 0.005 55);
+  --muted: oklch(0.22 0.015 55);
+  --muted-foreground: oklch(0.58 0.01 55);
+  --accent: oklch(0.22 0.02 55);
+  --accent-foreground: oklch(0.93 0.005 55);
+  --destructive: oklch(0.396 0.141 25.723);
+  /* Light text on the dark-red destructive bg (was red-on-red, unreadable). */
+  --destructive-foreground: oklch(0.93 0.005 55);
+  --border: oklch(0.25 0.015 55);
+  --input: oklch(0.25 0.015 55);
+  --ring: oklch(0.70 0.17 55);
+  --chart-1: oklch(0.70 0.17 55);
+  --chart-2: oklch(0.60 0.15 240);
+  --chart-3: oklch(0.68 0.15 145);
+  --chart-4: oklch(0.60 0.12 30);
+  --chart-5: oklch(0.65 0.08 280);
+  --sidebar: oklch(0.14 0.01 55);
+  --sidebar-foreground: oklch(0.90 0.005 55);
+  --sidebar-primary: oklch(0.70 0.17 55);
+  --sidebar-primary-foreground: oklch(0.99 0 0);
+  --sidebar-accent: oklch(0.20 0.015 55);
+  --sidebar-accent-foreground: oklch(0.90 0.005 55);
+  --sidebar-border: oklch(0.22 0.01 55);
+  --sidebar-ring: oklch(0.70 0.17 55);
+}
+
+@theme inline {
+  --font-sans: 'Geist', 'Geist Fallback';
+  --font-mono: 'Geist Mono', 'Geist Mono Fallback';
+  
+  --animate-collapsible-down: collapsible-down 0.2s ease-out;
+  --animate-collapsible-up: collapsible-up 0.2s ease-out;
+  --animate-row-in: row-in 0.45s cubic-bezier(0.16, 1, 0.3, 1);
+
+  @keyframes collapsible-down {
+    from {
+      height: 0;
+    }
+    to {
+      height: var(--radix-collapsible-content-height);
+    }
+  }
+
+  @keyframes collapsible-up {
+    from {
+      height: var(--radix-collapsible-content-height);
+    }
+    to {
+      height: 0;
+    }
+  }
+
+  @keyframes row-in {
+    from {
+      opacity: 0;
+      transform: translateY(-6px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  @keyframes shimmer {
+    0% {
+      transform: translateX(-100%);
+    }
+    100% {
+      transform: translateX(200%);
+    }
+  }
+
+  @keyframes roadMove {
+    0% {
+      transform: translateX(0);
+    }
+    100% {
+      transform: translateX(-48px);
+    }
+  }
+
+  /* ── Branded telemetry loader ─────────────────────────────────────── */
+  /* Animated waveform sweep: the dash pattern flows left→right like a
+     live signal tracing across an oscilloscope. */
+  @keyframes signalFlow {
+    0% {
+      stroke-dashoffset: 240;
+    }
+    100% {
+      stroke-dashoffset: 0;
+    }
+  }
+
+  /* A bright scanning highlight that sweeps across the signal panel. */
+  @keyframes scanSweep {
+    0% {
+      transform: translateX(-30%);
+      opacity: 0;
+    }
+    20% {
+      opacity: 1;
+    }
+    80% {
+      opacity: 1;
+    }
+    100% {
+      transform: translateX(130%);
+      opacity: 0;
+    }
+  }
+
+  /* Battery charge level rising and gently breathing. */
+  @keyframes chargeRise {
+    0% {
+      transform: scaleY(0.15);
+    }
+    100% {
+      transform: scaleY(0.92);
+    }
+  }
+
+  /* Energy nodes pulsing in sequence. */
+  @keyframes nodePulse {
+    0%,
+    100% {
+      opacity: 0.25;
+      transform: scale(0.8);
+    }
+    50% {
+      opacity: 1;
+      transform: scale(1.15);
+    }
+  }
+
+  --animate-shimmer: shimmer 1.5s infinite;
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}

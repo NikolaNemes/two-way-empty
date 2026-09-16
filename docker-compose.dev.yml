@@ -1,0 +1,177 @@
+# ════════════════════════════════════════════════════════════════════════════
+# Amperio Dispatch — DEV environment. Pulls, never builds.
+#
+#   docker compose -f docker-compose.dev.yml --env-file .env.dev pull
+#   docker compose -f docker-compose.dev.yml --env-file .env.dev up -d
+#
+# The image comes from Harbor, published by the `dev` job in .gitlab-ci.yml on
+# every push to develop. Postgres and Redis run locally here (unlike the
+# production compose file, where they are hosted Neon / Upstash).
+#
+# TLS is NOT handled here. The host's nginx runs as a CONTAINER on the external
+# `amperio_web` network, so it cannot reach a loopback port — the app joins that
+# network instead and nginx proxies to http://dispatcher:3000. No port
+# is published on the host at all.
+#
+# ONE image, two processes, selected by working directory:
+#   app    → /app                          → pnpm start = next start
+#   worker → /app/services/dispatch-worker → pnpm start = tsx src/worker.ts
+# ════════════════════════════════════════════════════════════════════════════
+
+name: amperio-dispatch-dev
+
+x-image: &image harbor.clickerteam.cloud/enexa/amperio-dispatch-dev:latest
+
+services:
+  # ── Next.js dashboard + API/cron/dispatcher routes ────────────────────────
+  app:
+    image: *image
+    pull_policy: always
+    restart: unless-stopped
+    env_file: [.env.dev]
+    environment:
+      # Public origin. Used for absolute links in emails and redirects; the
+      # container itself still listens on 3000 behind the host's proxy.
+      APP_BASE_URL: https://dev-dispatcher.amperio.enexa.me
+    # Liveness only — NOT readiness. /api/dispatcher/ready checks Redis and
+    # Amperio reachability; monitor that, but don't let it restart the app.
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/sign-in').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      start_period: 45s
+      retries: 3
+    # No `ports:` — nginx reaches the app over amperio_web. Publishing 3000 on
+    # the host would only expose an untrusted plaintext port.
+    depends_on:
+      postgres:
+        condition: service_healthy
+      serverless-redis-http:
+        condition: service_started
+    networks:
+      amperio: {}
+      amperio_web:
+        # Explicit alias, matching the house style already on this network
+        # (amperio_pilot_api → pilot_api, amperio_viewer → viewer). Without it
+        # Compose would publish the bare service name `app`, which is generic
+        # enough to collide with a sibling project. nginx's zz-amperio-
+        # dispatcher.conf proxies to this name — change both together.
+        aliases: [dispatcher]
+    logging: &logging
+      driver: json-file
+      options: { max-size: "10m", max-file: "5" }
+
+  # ── Dispatch worker: 15s loop → app's /api/dispatcher/tick ────────────────
+  worker:
+    image: *image
+    pull_policy: always
+    working_dir: /app/services/dispatch-worker
+    restart: unless-stopped
+    env_file: [.env.dev]
+    environment:
+      # In-network. The worker must NOT round-trip through the public hostname
+      # (and through Clerk's edge) to reach a sibling container.
+      APP_BASE_URL: http://app:3000
+      STATUS_REPORT_URL: http://app:3000
+    depends_on:
+      app:
+        condition: service_healthy
+    networks: [amperio]
+    logging: *logging
+
+  # ── Cron replacement for vercel.json `crons` (UTC) ────────────────────────
+  cron:
+    image: alpine:3.20
+    restart: unless-stopped
+    env_file: [.env.dev]
+    environment:
+      TZ: UTC
+    depends_on:
+      app:
+        condition: service_healthy
+    networks: [amperio]
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -eu
+        apk add --no-cache curl tzdata >/dev/null
+        cat > /etc/periodic/hit <<'EOF'
+        #!/bin/sh
+        curl -fsS -m 320 -H "Authorization: Bearer $${CRON_SECRET}" "http://app:3000$$1" \
+          && echo "[cron] ok $$1" || echo "[cron] FAILED $$1"
+        EOF
+        chmod +x /etc/periodic/hit
+        cat > /etc/crontabs/root <<'EOF'
+        30 2 * * * /etc/periodic/hit /api/cron/rollup
+        15 3 * * * /etc/periodic/hit /api/cron/retention
+        0  4 * * * /etc/periodic/hit /api/cron/fleet-report
+        EOF
+        exec crond -f -l 8 -L /dev/stdout
+    logging: *logging
+
+  # ── Postgres ──────────────────────────────────────────────────────────────
+  # NOTE: there is no migration runner in this repo. lib/db/schema.ts mirrors
+  # DDL applied by hand, so this volume starts EMPTY and the app will error on
+  # first query until a schema is loaded:
+  #   docker compose -f docker-compose.dev.yml exec -T postgres \
+  #     psql -U amperio -d amperio < schema.sql
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-amperio}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env.dev}
+      POSTGRES_DB: ${POSTGRES_DB:-amperio}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-amperio} -d ${POSTGRES_DB:-amperio}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks: [amperio]
+    logging: *logging
+
+  # ── Redis + Upstash-compatible REST front ─────────────────────────────────
+  # lib/dispatcher-store.ts uses @upstash/redis, which speaks Upstash's REST
+  # protocol — a plain redis:// server will NOT work, hence the shim.
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+    networks: [amperio]
+    logging: *logging
+
+  serverless-redis-http:
+    image: hiett/serverless-redis-http:latest
+    restart: unless-stopped
+    environment:
+      SRH_MODE: env
+      # Must equal KV_REST_API_TOKEN in .env.dev.
+      SRH_TOKEN: ${KV_REST_API_TOKEN:?set KV_REST_API_TOKEN in .env.dev}
+      SRH_CONNECTION_STRING: redis://redis:6379
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks: [amperio]
+    logging: *logging
+
+networks:
+  # Internal: app ↔ worker ↔ postgres ↔ redis.
+  amperio:
+    driver: bridge
+  # Pre-existing, owned by the /root/amperio compose project that runs nginx.
+  # Declared external so this file never tries to create or remove it.
+  amperio_web:
+    external: true
+
+volumes:
+  pgdata:
+  redisdata:
